@@ -1,0 +1,114 @@
+---
+title: "618final"
+output: word_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(ggplot2)
+
+```
+# time distribution
+```{r include=TRUE}
+matchdata <- read.table("overallmatch.csv", sep =",",header = TRUE, fill=TRUE, quote = "",comment.char = "")
+matchdata$version <- factor(matchdata$version)
+matchdata$radiwin <- factor(matchdata$radiwin)
+matchtable <- data.table(matchdata)
+matchtable1 <- matchtable[time < 5000, ]
+
+ggplot(matchtable1, aes(x=time, fill=version)) + geom_density(alpha=.3)+labs(title = "Match Duration Distribution")
+
+ggplot(matchtable, aes(x=radi_totalkill + dire_totalkill,y = ..density.., fill=version))+ geom_histogram(binwidth=.5, alpha=.5, position="identity")+labs(list(title = "Kills Distribution",x = "Kills"))
+
+ggplot(matchtable1, aes(x=(radi_networth+dire_networth)/time, fill=version)) + geom_density(alpha=.3)+labs(title = "Match Duration Distribution")
+
+ggplot(matchtable1, aes(x=version, y=radi_damage+dire_damage, fill=version)) + geom_boxplot()+labs(list(title = "Damage Distribution",x = "Vesion", y = "Total Damage"))
+
+
+```
+
+# anova
+```{r include=TRUE}
+
+matchtable7 <- matchtable[version == 7,,]
+matchtable7$mode <- factor(matchtable7$mode)
+ggplot(matchtable7, aes(x=mode,y = radi_totalkill+ dire_totalkill,color = mode))+ geom_jitter(alpha=0.05)+geom_boxplot()+labs(y = "total kills")
+TukeyHSD( aov(I(radi_totalkill+ dire_totalkill) ~ mode, matchtable7) )
+
+ggplot(matchtable7, aes(x=mode,y = radi_heal+ dire_heal,color = mode))+ geom_jitter(alpha=0.05)+geom_boxplot()+labs(y = "total heal")
+TukeyHSD( aov(I(radi_heal+ dire_heal) ~ mode, matchtable7) )
+
+
+
+```
+
+# heroes
+```{r include=TRUE}
+library(gplots)
+library(cluster)
+herodata <- read.table("hero.csv", sep =",",header = TRUE, fill=TRUE, quote = "",comment.char = "")
+herodata <- data.table(herodata)
+hero_average <- herodata[ , .(win = mean(win), kills= mean(kills), deaths = mean(deaths), assists = mean(assists), damage = mean(damage), heal = mean(heal), lasthit = mean(lasthit), denies = mean(denies), level = mean(level), tower = mean(tower) ), by = c("Hero","version")]
+
+hero_average6 <- hero_average[version == 6.88,,]
+hero_average7 <- hero_average[version == 7.00,,]
+
+heroave_ave6 <- data.frame(hero_average6[,c("kills","deaths","assists","damage","heal","lasthit","denies","level","tower"),])
+heroave_ave7 <- data.frame(hero_average7[,c("kills","deaths","assists","damage","heal","lasthit","denies","level","tower"),])
+
+row.names(heroave_ave6)<-hero_average6$Hero
+row.names(heroave_ave7)<-hero_average7$Hero
+
+hero6.dist = dist(heroave_ave6,method = "euclidean", diag = TRUE,upper = TRUE)
+clusplot(pam(hero6.dist,k=2), main = "K-medoid Clustering of Heroes (6.88)",labels = 2,lines = 0)
+
+hero7.dist = dist(heroave_ave7,method = "euclidean", diag = TRUE,upper = TRUE)
+clusplot(pam(hero7.dist,k=2), main = "K-medoid Clustering of Heroes (7.00)",labels = 2,lines = 0)
+
+
+```
+
+# logistic regression
+```{r include=TRUE}
+
+matchtable6 <- matchtable[version == 6.88,,]
+matchtable6$mode <- factor(matchtable6$mode)
+matchtable6$radiwin <- factor(matchtable6$radiwin)
+matchtable6 <- matchtable6[, killsgap := radi_totalkill - dire_totalkill , ]
+matchtable6 <- matchtable6[, assistsgap := radi_totalassist - dire_totalassist , ]
+matchtable6 <- matchtable6[, deniesgap := radi_denies - dire_denies , ]
+matchtable6 <- matchtable6[, networthgap := radi_networth - dire_networth, ]
+matchtable6 <- matchtable6[, damagegap := radi_damage - dire_damage, ]
+matchtable6 <- matchtable6[, levelgap := radi_level - dire_level, ]
+matchtable6 <- matchtable6[, healgap := radi_heal - dire_heal, ]
+
+test <- glm(radiwin ~ killsgap + assistsgap + deniesgap + networthgap+ damagegap+ levelgap+ healgap, family=binomial, matchtable6 )
+summary(test)
+
+accuracy <- NULL
+set.seed(722)
+for(i in 1:100)
+{
+
+    samp_size <- floor(0.75 * nrow(matchtable6))
+    index <- sample(seq_len(nrow(matchtable6)),size=samp_size)
+    train <- matchtable6[index, ]
+    test <- matchtable6[-index, ]
+
+    model <- glm(radiwin ~ killsgap + assistsgap + deniesgap + networthgap+ damagegap+ levelgap+ healgap,family=binomial,data=train)
+
+    results_p <- predict(model,subset(test,select=c(21:27)),type='response')
+    
+    results <- ifelse(results_p > 0.5,1,0)
+    answers <- test$radiwin
+    err <- mean(answers != results)
+    accuracy[i] <- 1-err
+
+}
+mean(accuracy)
+#acc.frame< data.frame(accuracy)
+
+#ggplot(acc.frame, aes(x=acc)) + geom_histogram(aes(y=..density..),binwidth = 0.002, colour="black", fill="white") + geom_density(alpha=.2, fill="green")+labs(title = "Accuracy Distribution")
+
+```
